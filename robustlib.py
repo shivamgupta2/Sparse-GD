@@ -214,7 +214,8 @@ class GDAlgs(object):
         eps_m = round(eps * m)
         for i in range(nItrs):
             if self.sparse:
-                Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - (X.T @ np.outer(w, w) @ X)
+                Xw = X.T @ w
+                Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - (Xw @ Xw.T)
                 Sigma_w_minus_I = Sigma_w - np.eye(d)
                 #find indices of largest k entries of each row of Sigma_w_minus_I
                 largest_k_each_row_index_array = np.argpartition(Sigma_w_minus_I, kth=-k, axis=-1)[:, -k:]
