@@ -180,12 +180,14 @@ class RSPCA_MixtureModel(object):
         
 """ Algorithms """
 
+
 class GDAlgs(object):
     def __init__(self, params):
         self.params = params
+        self.sparse = True 
         pass
 
-    def project_onto_capped_simplex_simple(w, cap):
+    def project_onto_capped_simplex_simple(self,w, cap):
         tL = np.min(w) - 1
         tR = np.max(w)
 
@@ -204,24 +206,49 @@ class GDAlgs(object):
         d = self.params.d
         m = self.params.m
         eps = self.params.eps
-        nItrs = self.params.nItrs
+        nItrs = 200
 
         step_size = 1/m
-        w = np.ones((m, 1)) / m
+        w = np.ones(m) / m
         X = S
         eps_m = round(eps * m)
         for i in range(nItrs):
-            Xw = X.T * w
-            Sigma_w_fun = lambda v: X.T * (np.dot(w, X * v)) - Xw * Xw.T * v
-            Sigma_w_linear_operator = LinearOperator((d, d), matvec=Sigma_w_fun)
-            u, u_val = eigs(Sigma_w_linear_operator, k=1)
-            u_val = u_val[0]
-            u = u[:, 0]
-            Xu = X * u
-            nabla_f_w = np.dot(Xu, Xu) - 2 * (w.T * Xu) * Xu
+            if self.sparse:
+                Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - (X.T @ np.outer(w, w) @ X)
+                Sigma_w_minus_I = Sigma_w - np.eye(d)
+                #find indices of largest k entries of each row of Sigma_w_minus_I
+                largest_k_each_row_index_array = np.argpartition(Sigma_w_minus_I, kth=-k, axis=-1)[:, -k:]
+                #find corresponding entries
+                largest_k_each_row = np.take_along_axis(Sigma_w_minus_I, largest_k_each_row_index_array, axis=-1)
+                #find squared F norm of each of these rows
+                squared_F_norm_of_each_row = np.sum(largest_k_each_row * largest_k_each_row, axis=-1)
+                #find indices of largest k rows
+                largest_rows_index_array = np.argpartition(squared_F_norm_of_each_row, kth=-k)[-k:]
+                psi_w = np.zeros((d, d))
+                largest_k_each_row_index_array = largest_k_each_row_index_array[largest_rows_index_array]
+                #psi is indicator matrix with 1s corresponding to entries included in F,k,k norm, and 0 elsewhere
+                psi_w[largest_rows_index_array, largest_k_each_row_index_array.T] = 1
+                Z_w = psi_w * Sigma_w_minus_I
+
+                nabla_f_w = ((X @ (Z_w @ X.T)).diagonal() - (X @ Z_w @ (X.T @ w)) - (X @ (Z_w.T @ (X.T @ w)))) / LA.norm(Z_w)
+            else:
+                Xw = np.matmul(X.T, w)
+                Sigma_w_fun = lambda v: np.matmul(X.T, w * np.matmul(X, v)) - Xw *np.matmul(Xw.T, v)
+                Sigma_w_linear_operator = LinearOperator((d, d), matvec=Sigma_w_fun)
+                u_val, u = eigs(Sigma_w_linear_operator, k=1)
+                #print(u, u_val)
+                u_val = u_val[0]
+                u = u[:, 0]
+                Xu = X @ u
+                #print(w.T, Xu)
+                nabla_f_w = Xu * Xu - (2 * np.dot(Xu, w)) * Xu
             w = w - step_size * nabla_f_w/ LA.norm(nabla_f_w)
-            w = project_onto_capped_simplex_simple(w, 1/(m - eps_m))
-        mu_gd = np.sum(spdiags(w.T, 0, m, m) * X).T
+            w = self.project_onto_capped_simplex_simple(w, (1/(m - eps_m)))
+            #print(w.shape)
+        print(w.shape)
+        print(X.shape)
+        mu_gd = np.sum(w * X.T, axis=1)
+        print(mu_gd)
         return mu_gd
 
 class FilterAlgs(object):
@@ -956,7 +983,7 @@ class plot_data(RunCollection):
                 'RME_sp_L':'RME_sp_L',
                 'Oracle':'oracle',
                 'RME':'RME',
-                'GDAlgs':'Dense GD'
+                'GDAlgs':'Sparse GD'
                 }
 
         s = len(runs)
