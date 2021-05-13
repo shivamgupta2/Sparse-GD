@@ -2,9 +2,11 @@ import numpy as np
 import scipy
 import copy
 from scipy import special
+from scipy.sparse import coo_matrix
 from numpy import linalg as LA
 from scipy.sparse.linalg import LinearOperator, eigs
 from scipy.sparse import spdiags
+from scipy.sparse.linalg import norm as sparse_norm
 import matplotlib.pyplot as plt
 from pylab import rcParams
 import pickle
@@ -214,14 +216,11 @@ class GDAlgs(object):
         X = S
         eps_m = round(eps * m)
         nabla_f_w_total_time = 0
-        sigma_w_total_time = 0
         start_time = time.time()
         for i in range(nItrs):
             if self.sparse:
                 Xw = X.T @ w
-                sigma_w_start_time = time.time()
                 Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - (Xw @ Xw.T)
-                sigma_w_total_time += time.time() - sigma_w_start_time
                 Sigma_w_minus_I = Sigma_w - np.eye(d)
                 #find indices of largest k entries of each row of Sigma_w_minus_I
                 largest_k_each_row_index_array = np.argpartition(Sigma_w_minus_I, kth=-k, axis=-1)[:, -k:]
@@ -231,16 +230,17 @@ class GDAlgs(object):
                 squared_F_norm_of_each_row = np.sum(largest_k_each_row * largest_k_each_row, axis=-1)
                 #find indices of largest k rows
                 largest_rows_index_array = np.argpartition(squared_F_norm_of_each_row, kth=-k)[-k:]
-                psi_w = np.zeros((d, d))
+                psi_w = np.zeros((d, d), dtype=int)
                 largest_k_each_row_index_array = largest_k_each_row_index_array[largest_rows_index_array]
                 #psi is indicator matrix with 1s corresponding to entries included in F,k,k norm, and 0 elsewhere
                 psi_w[largest_rows_index_array, largest_k_each_row_index_array.T] = 1
-                Z_w = psi_w * Sigma_w_minus_I
 
-                nabla_f_w_start_time = time.time()
-                nabla_f_w = ((X @ (Z_w @ X.T)).diagonal() - (X @ (Z_w @ (X.T @ w))) - (X @ (Z_w.T @ (X.T @ w)))) / LA.norm(Z_w)
-                #nabla_f_w = ((X @ (Z_w @ (X.T @ w))) - (X @ (Z_w.T @ (X.T @ w)))) / LA.norm(Z_w)
-                nabla_f_w_total_time += time.time() - nabla_f_w_start_time
+                psi_w = coo_matrix(psi_w)
+
+                Z_w = psi_w.multiply(Sigma_w_minus_I)
+
+                X_T_Z_w_X_diag = np.sum(Z_w.data * (X.T[psi_w.row, :] * X.T[psi_w.col, :]).T, axis=-1)
+                nabla_f_w = (X_T_Z_w_X_diag - (X @ (Z_w @ (X.T @ w))) - (X @ (Z_w.T @ (X.T @ w)))) / sparse_norm(Z_w)
             else:
                 Xw = np.matmul(X.T, w)
                 Sigma_w_fun = lambda v: np.matmul(X.T, w * np.matmul(X, v)) - Xw *np.matmul(Xw.T, v)
@@ -256,8 +256,6 @@ class GDAlgs(object):
             w = self.project_onto_capped_simplex_simple(w, (1/(m - eps_m)))
             #print(w.shape)
         print('Time to run GD ', time.time() - start_time)
-        print('Time to compute Sigma_w ', sigma_w_total_time)
-        print('Time to copute nabla_f_w', nabla_f_w_total_time)
         print(w.shape)
         print(X.shape)
         mu_gd = np.sum(w * X.T, axis=1)
