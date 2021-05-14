@@ -205,6 +205,7 @@ class GDAlgs(object):
 
     def alg(self, S, indicator):
 
+        self.sparse = True
         k = self.params.k
         d = self.params.d
         m = self.params.m
@@ -212,16 +213,24 @@ class GDAlgs(object):
         nItrs = 200
 
         step_size = 1/m
+        tol = 0.01
         w = np.ones(m) / m
         X = S
         eps_m = round(eps * m)
         nabla_f_w_total_time = 0
         start_time = time.time()
+        previous_obj = -1
+        previous_w = np.ones(m) / m
         for i in range(nItrs):
+            print(i)
             if self.sparse:
                 Xw = X.T @ w
-                Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - (Xw @ Xw.T)
+                #Sigma_w = np.cov(X, rowvar = 0)
+                #Sigma_w_minus_I = Sigma_w - np.eye(d)
+                #print('here1 ', Sigma_w_minus_I.diagonal())
+                Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - np.outer(Xw, Xw)
                 Sigma_w_minus_I = Sigma_w - np.eye(d)
+                #print('here2', Sigma_w_minus_I.diagonal())
                 #find indices of largest k entries of each row of Sigma_w_minus_I
                 largest_k_each_row_index_array = np.argpartition(Sigma_w_minus_I, kth=-k, axis=-1)[:, -k:]
                 #find corresponding entries
@@ -230,6 +239,21 @@ class GDAlgs(object):
                 squared_F_norm_of_each_row = np.sum(largest_k_each_row * largest_k_each_row, axis=-1)
                 #find indices of largest k rows
                 largest_rows_index_array = np.argpartition(squared_F_norm_of_each_row, kth=-k)[-k:]
+                cur_obj = np.sum(squared_F_norm_of_each_row[largest_rows_index_array])
+                
+                #we are done
+                #print(cur_obj)
+                if previous_obj != -1 and cur_obj < previous_obj and cur_obj > previous_obj - tol:
+                    break     
+                print(cur_obj, step_size)
+                if previous_obj == -1 or cur_obj <= previous_obj:
+                    step_size *= 2
+                else:
+                    w = previous_w
+                    step_size /= 4
+                    continue
+                previous_obj = cur_obj
+                previous_w = w
                 psi_w = np.zeros((d, d), dtype=int)
                 largest_k_each_row_index_array = largest_k_each_row_index_array[largest_rows_index_array]
                 #psi is indicator matrix with 1s corresponding to entries included in F,k,k norm, and 0 elsewhere
@@ -242,23 +266,44 @@ class GDAlgs(object):
                 X_T_Z_w_X_diag = np.sum(Z_w.data * (X.T[psi_w.row, :] * X.T[psi_w.col, :]).T, axis=-1)
                 nabla_f_w = (X_T_Z_w_X_diag - (X @ (Z_w @ (X.T @ w))) - (X @ (Z_w.T @ (X.T @ w)))) / sparse_norm(Z_w)
             else:
+                Xw = X.T @ w
+                #Sigma_w = np.cov(X, rowvar = 0)
+                #Sigma_w_minus_I = Sigma_w - np.eye(d)
+                #print('here1 ', Sigma_w_minus_I.diagonal())
+                Sigma_w = (X.T @ spdiags(w, 0, m, m) @ X) - np.outer(Xw, Xw)
+                print(np.allclose(Sigma_w, Sigma_w.T, rtol=1e-05, atol=1e-08))
+                Sigma_w_minus_I = Sigma_w - np.eye(d)
+                #print('here2', Sigma_w_minus_I.diagonal())
+                #find indices of largest k entries of each row of Sigma_w_minus_I
+                largest_k_each_row_index_array = np.argpartition(Sigma_w_minus_I, kth=-k, axis=-1)[:, -k:]
+                #find corresponding entries
+                largest_k_each_row = np.take_along_axis(Sigma_w_minus_I, largest_k_each_row_index_array, axis=-1)
+                #find squared F norm of each of these rows
+                squared_F_norm_of_each_row = np.sum(largest_k_each_row * largest_k_each_row, axis=-1)
+                #find indices of largest k rows
+                largest_rows_index_array = np.argpartition(squared_F_norm_of_each_row, kth=-k)[-k:]
+                cur_obj = np.sum(squared_F_norm_of_each_row[largest_rows_index_array])
+                print(cur_obj)
+
                 Xw = np.matmul(X.T, w)
-                Sigma_w_fun = lambda v: np.matmul(X.T, w * np.matmul(X, v)) - Xw *np.matmul(Xw.T, v)
-                Sigma_w_linear_operator = LinearOperator((d, d), matvec=Sigma_w_fun)
-                u_val, u = eigs(Sigma_w_linear_operator, k=1)
+                #Sigma_w_fun = lambda v: np.matmul(X.T, w * np.matmul(X, v)) - Xw *np.matmul(Xw.T, v)
+                #Sigma_w_linear_operator = LinearOperator((d, d), matvec=Sigma_w_fun)
+                u_val, u = LA.eigh(Sigma_w)
                 #print(u, u_val)
                 u_val = u_val[0]
                 u = u[:, 0]
                 Xu = X @ u
                 #print(w.T, Xu)
-                nabla_f_w = Xu * Xu - (2 * np.dot(Xu, w)) * Xu
+                print(X.shape, w.shape, Xu.shape, u.shape, (X.T @ w).shape,np.inner(u, (X.T @ w)))
+                nabla_f_w = Xu * Xu - (2 * np.inner(u, (X.T @ w))) @ Xu
             w = w - step_size * nabla_f_w/ LA.norm(nabla_f_w)
+            #print(w)
             w = self.project_onto_capped_simplex_simple(w, (1/(m - eps_m)))
             #print(w.shape)
         print('Time to run GD ', time.time() - start_time)
         print(w.shape)
         print(X.shape)
-        mu_gd = np.sum(w * X.T, axis=1)
+        mu_gd = topk_abs(np.sum(w * X.T, axis=1), k)
         print(mu_gd)
         return mu_gd
 
