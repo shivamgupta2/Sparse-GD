@@ -14,6 +14,7 @@ from matplotlib import rc
 import ast
 import mpld3
 import time
+from math import sqrt
 #mpld3.enable_notebook()
 
 def err_rspca(a,b): return LA.norm(np.outer(a,a)-np.outer(b, b))
@@ -180,7 +181,38 @@ class RSPCA_MixtureModel(object):
         params = Params(d,m,eps,k,tau, mass = mass)
         return params, S, indicator, tv
 
-        
+class QUESyntheticModel(object):
+    def __init__(self):
+        pass
+
+    def generate(self, params):
+        d, eps, m, tau, mass, k = params.d, params.eps, params.m, params.tau, params.mass, params.k
+        tm = np.zeros(d)
+
+        G = np.random.randn(m, d) + tm
+
+        S = G.copy()
+
+        L_1 = int(m * (1-eps))
+        L_2 = int(m*(1-eps/2))
+        sigma = 0.5
+        directions = d//2
+        C = 1
+        directions_array = np.zeros((L_2 - L_1, d))
+        directions_to_shift = np.random.randint(directions, size=L_2 - L_1)
+        directions_array[np.arange(L_2 - L_1), directions_to_shift] = 1
+        S[L_1:L_2] = sigma * G[L_1:L_2] + C * sqrt(directions/eps) * directions_array 
+
+        directions_array = np.zeros((m - L_2, d))
+        directions_to_shift = np.random.randint(directions, size=m - L_2)
+        directions_array[np.arange(m - L_2), directions_to_shift] = 1
+        S[L_2:] = sigma * G[L_2:] - C * sqrt(directions/eps) * directions_array
+
+        indicator = np.ones(len(S))
+        indicator[L_1:] = 0 
+        params = Params(d, m, eps, k, tau, mass=mass)
+        return params, S, indicator, tm
+
 """ Algorithms """
 
 
@@ -222,7 +254,6 @@ class GDAlgs(object):
         previous_obj = -1
         previous_w = np.ones(m) / m
         for i in range(nItrs):
-            print(i)
             if self.sparse:
                 Xw = X.T @ w
                 #Sigma_w = np.cov(X, rowvar = 0)
@@ -243,9 +274,8 @@ class GDAlgs(object):
                 
                 #we are done
                 #print(cur_obj)
-                if previous_obj != -1 and cur_obj < previous_obj and cur_obj > previous_obj - tol:
+                if previous_obj != -1 and cur_obj < previous_obj and cur_obj > previous_obj - tol * previous_obj:
                     break     
-                print(cur_obj, step_size)
                 if previous_obj == -1 or cur_obj <= previous_obj:
                     step_size *= 2
                 else:
@@ -301,10 +331,7 @@ class GDAlgs(object):
             w = self.project_onto_capped_simplex_simple(w, (1/(m - eps_m)))
             #print(w.shape)
         print('Time to run GD ', time.time() - start_time)
-        print(w.shape)
-        print(X.shape)
         mu_gd = topk_abs(np.sum(w * X.T, axis=1), k)
-        print(mu_gd)
         return mu_gd
 
 class FilterAlgs(object):

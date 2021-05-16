@@ -28,3 +28,4 @@ ylabel_rsm3 = 'L2 loss'
 plot_m_loss_rsm3_plt = rl.plot_data(model_rsm3, model_params_rsm3, rl.err, keys_rsm3)
 plot_m_loss_rsm3_plt.plotxy_fromfile(outputfilename_rsm3, inputfilename_rsm3, 'm', m_bounds_rsm3, (0, 1), title_rsm3, xlabel_rsm3, ylabel_rsm3, figsize=figsize, fsize=fsize, fpad=fpad, fontname=fontname, explicit_xs = False, xs = xs)
 plt.savefig('lhiding-loss-vs-m')
+
