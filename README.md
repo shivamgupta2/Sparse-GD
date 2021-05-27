@@ -1,6 +1,6 @@
 # Robust Sparse Mean Estimation via Non-Convex Optimization
 
-A python implementation of a non-convex optimization based algorithm for robust sparse mean estimation. We compare our algorithm to existing algorithms for this problem, especially the one in the paper "Outlier-Robust High-Dimensional Sparse Estimation via Iterative Filtering", authored by [Ilias Diakonikolas](http://www.iliasdiakonikolas.org/), [Daniel M. Kane](https://cseweb.ucsd.edu/~dakane/), [Sushrut Karmalkar](https://www.cs.utexas.edu/~sushrutk/), [Eric Price](https://www.cs.utexas.edu/~ecprice/) and [Alistair Stewart](http://www.alistair-stewart.com/).
+A python implementation of a non-convex optimization based algorithm for robust sparse mean estimation. We compare our algorithm to existing algorithms for this problem, especially the one in the paper "Outlier-Robust High-Dimensional Sparse Estimation via Iterative Filtering", authored by [Ilias Diakonikolas](http://www.iliasdiakonikolas.org/), [Daniel M. Kane](https://cseweb.ucsd.edu/~dakane/), [Sushrut Karmalkar](https://www.cs.utexas.edu/~sushrutk/), [Eric Price](https://www.cs.utexas.edu/~ecprice/) and [Alistair Stewart](http://www.alistair-stewart.com/). We also consider the noise models from that paper. We make use of the code in that paper for our experiments. 
 
 Explanation of Files
 ==
