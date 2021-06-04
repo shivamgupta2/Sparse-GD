@@ -7,6 +7,7 @@ from numpy import linalg as LA
 from scipy.sparse.linalg import LinearOperator, eigs
 from scipy.sparse import spdiags
 from scipy.sparse.linalg import norm as sparse_norm
+from scipy.linalg import eigh
 import matplotlib.pyplot as plt
 from pylab import rcParams
 import pickle
@@ -195,8 +196,8 @@ class QUESyntheticModel(object):
 
         L_1 = int(m * (1-eps))
         L_2 = int(m*(1-eps/2))
-        sigma = 0.5
-        directions = d//2
+        sigma = 0.1
+        directions = k//8
         C = 1
         directions_array = np.zeros((L_2 - L_1, d))
         directions_to_shift = np.random.randint(directions, size=L_2 - L_1)
@@ -470,6 +471,7 @@ class FilterAlgs(object):
 
     def alg(self, S, indicator):
         
+        start_time = time.time()
         k = self.params.k
         d = self.params.d
         m = self.params.m
@@ -541,7 +543,9 @@ class FilterAlgs(object):
             if pre_filter_length == len(idx): 
                 print("Could not filter")
                 break
-                    
+        time_taken = time.time() - start_time 
+        if self.lfilter and self.qfilter:
+            print('Time taken by RME_sp:', time_taken)
         if self.is_sparse == True:
             # print(topk_abs(np.mean(S, axis=0), k))
             return topk_abs(np.mean(S, axis=0), k)
@@ -562,6 +566,90 @@ class RME(FilterAlgs):
     lfilter, qfilter = True, False
     dense_filter = True
     # do_plot_linear = True
+
+class GDPCA(object):
+    def __init__(self, params):
+        self.params = params
+
+    def project_onto_capped_simplex_simple(self,w, cap):
+        tL = np.min(w) - 1
+        tR = np.max(w)
+
+        for b_search in range(1, 50):
+            t = (tL + tR)/2
+            if np.sum(np.minimum(np.maximum(w-t, 0), cap)) < 1:
+                tR = t
+            else:
+                tL = t
+        v = np.minimum(np.maximum(w-t, 0), cap)
+        return v
+
+    def alg(self, S, indicator, tv=0):
+        k = self.params.k
+        d = self.params.d
+        m = self.params.m
+        eps = self.params.eps
+        nItrs = 2000
+        step_size = 1/m
+        tol = 0.001
+        w = np.ones(m)/m
+        X = S
+        eps_m = round(eps * m)
+        nabla_f_w_total_time = 0
+        start_time = time.time()
+        previous_obj = -1
+        previous_w = np.ones(m) / m
+        for i in range(nItrs):
+            M_w = X.T @ spdiags(w, 0, m, m) @ X
+            M_w_minus_I = M_w - np.eye(d)
+            #find largest 2k^2 entries in the matrix
+            largest_2k_sq_index_array = np.argpartition(np.abs(np.ravel(M_w_minus_I)), kth=-(2 * k * k))[-(2 * k * k):]
+            largest_2k_sq_entries = np.ravel(M_w_minus_I)[largest_2k_sq_index_array]
+            print('largest!', largest_2k_sq_entries, np.ravel(M_w_minus_I))
+            squared_F_norm_largest = np.sum(largest_2k_sq_entries * largest_2k_sq_entries)
+            cur_obj = squared_F_norm_largest
+            print(i, cur_obj, w)
+
+            if previous_obj != -1 and cur_obj < previous_obj and cur_obj > previous_obj - tol * previous_obj:
+                break     
+            if previous_obj == -1 or cur_obj <= previous_obj:
+                step_size *= 2
+            else:
+                w = previous_w
+                step_size /= 4
+                continue
+            previous_obj = cur_obj
+            previous_w = w
+
+            psi_w = np.zeros((d, d), dtype=int)
+            np.ravel(psi_w)[largest_2k_sq_index_array] = 1
+            psi_w = coo_matrix(psi_w)
+            Z_w = psi_w.multiply(M_w_minus_I)
+            X_T_Z_w_X_diag = np.sum(Z_w.data * (X.T[psi_w.row, :] * X.T[psi_w.col, :]).T, axis=-1)
+            nabla_f_w = X_T_Z_w_X_diag/sparse_norm(Z_w)
+
+            w = w - step_size * nabla_f_w
+            w = self.project_onto_capped_simplex_simple(w, 1/(m- eps_m))
+
+            #Here we compute the loss
+            M_w = X.T @ spdiags(w, 0, m, m) @ X
+            M_w_minus_I = M_w - np.eye(d)
+            largest_k_sq_index_array = np.argpartition(np.abs(np.ravel(M_w_minus_I)), kth=-(k * k))[-(k * k):]
+            #print('index_array:', largest_k_sq_index_array)
+            A_Q = np.zeros((d, d))
+            np.ravel(A_Q)[largest_k_sq_index_array] = np.ravel(M_w_minus_I)[largest_k_sq_index_array]
+            _, v = eigh(A_Q + A_Q.T, subset_by_index=[d-1,d-1])
+            #print(f"loss after {i+1} iteration!", LA.norm(np.outer(v, v) - np.outer(tv,tv)))
+        M_w = X.T @ spdiags(w, 0, m, m) @ X
+        M_w_minus_I = M_w - np.eye(d)
+        largest_k_sq_index_array = np.argpartition(np.ravel(M_w_minus_I), kth=-(k * k))[-(k * k):]
+        A_Q = np.zeros((d, d))
+        np.ravel(A_Q)[largest_k_sq_index_array] = np.ravel(M_w_minus_I)[largest_k_sq_index_array]
+        _, v = eigh(A_Q + A_Q.T, subset_by_index=[d-1, d-1])
+        print('here', np.ravel(v))
+
+        return np.ravel(v)
+        
 
 class RSPCAb(FilterAlgs):
 
@@ -720,6 +808,8 @@ class RSPCAb(FilterAlgs):
             eps_prev = (eps_prev*eps)**(1/2) + eps*np.log(1/eps)
             if self.verbose:
                 print(f"loss after {i+1} iteration!", LA.norm(np.outer(v_prev, v_prev) - np.outer(tv,tv)))
+        #print(indicator)
+        print('HERE', v_prev)
         return v_prev
 
 
@@ -1046,7 +1136,7 @@ class plot_data(RunCollection):
 
     def plot_xloss(self, outputfilename, runs, xvar_name, bounds, title, xlabel, ylabel, ylims, y_is_m = False, relative = False, explicit_xs = False, xs = [], fsize = 10, fpad = 10, figsize = (1,1), fontname = 'Arial'):
 
-        cols = {'RSPCAdense':'k', 'RSPCAb':'b', 'RME_sp':'b', 'RME_sp_L':'g', 'RME':'r','ransacGaussianMean':'y' , 'NP_sp':'k', 'Oracle':'c', 'GDAlgs':'m'}
+        cols = {'RSPCAdense':'k', 'RSPCAb':'b', 'RME_sp':'b', 'RME_sp_L':'g', 'RME':'r','ransacGaussianMean':'y' , 'NP_sp':'k', 'Oracle':'c', 'GDAlgs':'r', 'GDPCA':'r'}
        
         markers = {'RSPCAdense':'.', 
                     'RSPCAb':'o', 
@@ -1056,7 +1146,8 @@ class plot_data(RunCollection):
                     'ransacGaussianMean':'D' , 
                     'NP_sp':'p', 
                     'Oracle':'x',
-                    'GDAlgs':'+'}
+                    'GDAlgs':'^',
+                    'GDPCA':'^'}
         
         labels = {'RSPCAdense':"Robust dense PCA", 
                 'RSPCAb':"Robust sparse PCA", 
@@ -1066,7 +1157,8 @@ class plot_data(RunCollection):
                 'RME_sp_L':'RME_sp_L',
                 'Oracle':'oracle',
                 'RME':'RME',
-                'GDAlgs':'Sparse GD'
+                'GDAlgs':'Sparse GD',
+                'GDPCA':'Sparse GD PCA'
                 }
 
         s = len(runs)
@@ -1075,6 +1167,7 @@ class plot_data(RunCollection):
         for key in str_keys:
             print(key)
             A = np.array([res[key] for res in runs])
+            print(A)
             if explicit_xs == False:
                 xs = np.arange(*bounds)
             else:
