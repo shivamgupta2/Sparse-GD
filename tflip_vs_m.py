@@ -8,7 +8,7 @@ fpad=10
 d_rsm3, k_rsm3, eps_rsm3 = 10, 1, 0.1 
 nItrs_rsm3 = 200
 
-m_bounds_rsm3 = (2, 1000, 10)
+m_bounds_rsm3 = (2, 12000, 100)
 
 model_rsm3 = rl.TailFlipModel()
 

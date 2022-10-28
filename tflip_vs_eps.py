@@ -21,8 +21,8 @@ xs = []
 inputfilename_rsm3 = 'data/tailflip-loss-vs-eps-pkl'
 outputfilename_rsm3 = 'figs/tailflip-loss-vs-eps.pdf'
 plot_m_loss_rsm3 = rl.load_data(model_rsm3, model_params_rsm3, rl.err, keys_rsm3)
-plot_m_loss_rsm3.setdata_tofile(inputfilename_rsm3, 'eps', eps_bounds_rsm3, trials_rsm3, ylims_rsm3, explicit_xs=False, xs=xs)
-title_rsm3 = 'd = {d}, k = {k}, m = {m}, Noise is tail flipping'.format(d=d_rsm3, k=k_rsm3, m=m_rsm3)
+#plot_m_loss_rsm3.setdata_tofile(inputfilename_rsm3, 'eps', eps_bounds_rsm3, trials_rsm3, ylims_rsm3, explicit_xs=False, xs=xs)
+title_rsm3 = 'd = {d}, k = {k}, n = {m}, Noise is tail flipping'.format(d=d_rsm3, k=k_rsm3, m=m_rsm3)
 xlabel_rsm3 = 'eps'
 ylabel_rsm3 = 'L2 loss'
 plot_m_loss_rsm3_plt = rl.plot_data(model_rsm3, model_params_rsm3, rl.err, keys_rsm3)
